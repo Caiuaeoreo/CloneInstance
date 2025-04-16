@@ -31,6 +31,8 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
     if not response['Reservations'] or not response['Reservations'][0]['Instances']:
         print(f"Error: Instance {instance_id} not found in {source_region}")
         sys.exit(1)
+
+    source_ec2.stop_instances(InstanceIds=[instance_id])
         
     instance = response['Reservations'][0]['Instances'][0]
     
