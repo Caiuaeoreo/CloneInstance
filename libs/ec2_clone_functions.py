@@ -80,11 +80,11 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
                 # usa a primeira az disponivel das que sobraram
                 target_az = available_azs[0]
                 
-                # Find a subnet in the target AZ
+                # Pega todas as subnets
                 subnets = target_ec2.describe_subnets()['Subnets']
                 target_subnet = None
                 
-                # Try to find a subnet in the same VPC as the source subnet
+                # Pega a subnet usada para a instância raiz e a VPC para o if
                 source_subnet = target_ec2.describe_subnets(SubnetIds=[instance['SubnetId']])['Subnets'][0]
                 source_vpc = source_subnet['VpcId']
                 
@@ -104,7 +104,7 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
                         )
                         print(f"{id} - {subnet['SubnetId']} | {name}")
 
-                    # Solicita ao usuário que escolha uma subnet
+                    # Solicita ao user que escolha uma subnet
                     while True:
                         try:
                             choice = int(input("Escolha o número da subnet desejada: "))
@@ -125,16 +125,16 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
                 print(f"Usando subnet {target_subnet}")
 
             else:
-                # If only one AZ available or source AZ not found, use original subnet
+                # Se houver apenas uma AZ disponivel, usa a mesma subnet
                 run_params['SubnetId'] = instance['SubnetId']
         else:
-            # For cross-region, we need to find a suitable subnet in the target region
-            # We'll use the first subnet in the same AZ letter (if possible)
+            # Para cross, temos que buscar uma subnet analoga
+            # Vamos usar a primeira subnet na mesma az definida
             source_az = instance['Placement']['AvailabilityZone']
-            source_az_letter = source_az[-1]  # Get the AZ letter (a, b, c, etc.)
+            source_az_letter = source_az[-1]  # pega a letra da AZ (a, b, c e etc..)
             
             try:
-                # Get all subnets in target region
+                # Pega todas as subnets na target region
                 subnets = target_ec2.describe_subnets()['Subnets']
                 
                 # Try to find a subnet in the same AZ letter
