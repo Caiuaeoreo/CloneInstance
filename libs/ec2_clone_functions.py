@@ -4,39 +4,32 @@ import sys
 from datetime import datetime
 
 def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region, target_region=None):
-    """
-    Clone an EC2 instance with a new AMI while preserving all other settings
-    
-    Args:
-        instance_id (str): ID of the instance to clone
-        new_ami_id (str): ID of the new AMI to use
-        new_name (str, optional): New name for the instance
-        source_region (str): AWS region where the source instance is located
-        target_region (str, optional): AWS region where to create the new instance.
-                                      If None, uses the same region as source.
-    """
-    # If target_region is not specified, use the same as source_region
+    # Usaa mesma região se não passar a target
     if target_region is None:
         target_region = source_region
     
     print(f"Starting to clone instance {instance_id} from {source_region} with new AMI {new_ami_id}" + 
           (f" to {target_region}" if target_region != source_region else "") + "...")
     
-    # Initialize boto3 clients
+    # Definindo as variaveis de para não ter que escrever a chamada do boto toda a hora 
     source_ec2 = boto3.client('ec2', region_name=source_region)
     target_ec2 = boto3.client('ec2', region_name=target_region)
     
-    # Get instance details
+    # Pegando dados da intância base
     response = source_ec2.describe_instances(InstanceIds=[instance_id])
+
+    # Se der erro aqui é pq ele não encontrou a instância nessa região
     if not response['Reservations'] or not response['Reservations'][0]['Instances']:
         print(f"Error: Instance {instance_id} not found in {source_region}")
         sys.exit(1)
 
+    # Para a instância para fazer o clone
     source_ec2.stop_instances(InstanceIds=[instance_id])
-        
+    
+    # Get dos dados da instância (Melhor para gerenciar o json)    
     instance = response['Reservations'][0]['Instances'][0]
     
-    # Check if AMI exists in target region
+    # Verifica a existencia da AMI
     try:
         ami_check = target_ec2.describe_images(ImageIds=[new_ami_id])
         if not ami_check['Images']:
@@ -46,7 +39,7 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
         print(f"Error: AMI {new_ami_id} not found in {target_region} or not accessible: {e}")
         sys.exit(1)
     
-    # Prepare run_instances parameters
+    # Parametros para criação da nova máquina.
     run_params = {
         'ImageId': new_ami_id,
         'InstanceType': instance['InstanceType'],
@@ -54,25 +47,37 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
         'MinCount': 1
     }
     
-    # Add subnet if exists - need to handle cross-region case and different AZ
+    # Add subnet se existir - Precisa ser alterado para melhor ganularidade caso seja usado apra regiões diferentes
     if 'SubnetId' in instance:
         if source_region == target_region:
-            # Get the source AZ
+            # Pega a AZ atual da máquina que vai ser clonada
             source_az = instance['Placement'].get('AvailabilityZone')
             
-            # Get all AZs in the region
+            # pega todas as AZs da região
             azs = target_ec2.describe_availability_zones(
                 Filters=[{'Name': 'region-name', 'Values': [target_region]}]
             )['AvailabilityZones']
             
+            '''
+            Vou explicar aqui para quem quiser saber pq achei fantastico essa forma de preencher a lista.
+            Resumindo, leia a linha abaixo como se fosse uma abstração disso:
+            available_azs = []
+            for az in azs:
+                if az['State'] == 'available':
+                    available_azs.append(az['ZoneName'])
+            
+            Entendeu? rlx, minha mente também fez blow mind quando entendi como funciona kkk
+
+            link de referencia: https://www.w3schools.com/python/python_lists_comprehension.asp
+            '''
             available_azs = [az['ZoneName'] for az in azs if az['State'] == 'available']
             
             if len(available_azs) > 1 and source_az:
-                # Remove the source AZ from the list of available AZs
+                # Remove a source az da lista de azs disponiveis
                 if source_az in available_azs:
                     available_azs.remove(source_az)
                 
-                # Use the first available AZ that's different from the source
+                # usa a primeira az disponivel das que sobraram
                 target_az = available_azs[0]
                 
                 # Find a subnet in the target AZ
@@ -83,18 +88,42 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
                 source_subnet = target_ec2.describe_subnets(SubnetIds=[instance['SubnetId']])['Subnets'][0]
                 source_vpc = source_subnet['VpcId']
                 
-                for subnet in subnets:
-                    if subnet['AvailabilityZone'] == target_az and subnet['VpcId'] == source_vpc:
-                        target_subnet = subnet['SubnetId']
-                        break
-                
-                if target_subnet:
-                    run_params['SubnetId'] = target_subnet
-                    print(f"Using subnet {target_subnet} in AZ {target_az} (original was in {source_az})")
+                # Filtra as subnets que atendem aos critérios
+                matching_subnets = [
+                    subnet for subnet in subnets
+                    if subnet['AvailabilityZone'] == target_az and subnet['VpcId'] == source_vpc
+                ]
+
+                # Se houver subnets compatíveis, exibe e pede escolha
+                if matching_subnets:
+                    print("Subnets disponíveis:")
+                    for id, subnet in enumerate(matching_subnets, start=1):
+                        name = next(
+                            (tag['Value'] for tag in subnet.get('Tags', []) if tag['Key'] == 'Name'),
+                            'Sem nome'
+                        )
+                        print(f"{id} - {subnet['SubnetId']} | {name}")
+
+                    # Solicita ao usuário que escolha uma subnet
+                    while True:
+                        try:
+                            choice = int(input("Escolha o número da subnet desejada: "))
+                            if 1 <= choice <= len(matching_subnets):
+                                target_subnet = matching_subnets[choice - 1]['SubnetId']
+                                break
+                            else:
+                                print("Número inválido. Tente novamente.")
+                        except ValueError:
+                            print("Entrada inválida. Digite um número.")
                 else:
-                    # If no subnet found in target AZ with same VPC, use original subnet
-                    run_params['SubnetId'] = instance['SubnetId']
-                    print(f"Warning: Could not find a subnet in a different AZ. Using original subnet.")
+                    # Se não houver subnets compatíveis, usa a original
+                    target_subnet = instance['SubnetId']
+                    print("Aviso: Nenhuma subnet encontrada na AZ alvo. Usando a subnet original.")
+
+                # Define o parâmetro de execução
+                run_params['SubnetId'] = target_subnet
+                print(f"Usando subnet {target_subnet}")
+
             else:
                 # If only one AZ available or source AZ not found, use original subnet
                 run_params['SubnetId'] = instance['SubnetId']
