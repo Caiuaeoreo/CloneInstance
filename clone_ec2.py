@@ -1,27 +1,5 @@
 #!/usr/bin/env python3
-"""
-EC2 Instance Cloner
 
-This script clones an existing EC2 instance with a new AMI while preserving all other settings
-including security groups, IAM roles, tags, metadata options, and EBS volumes.
-It can clone within the same region or across different AWS regions.
-
-Prerequisites:
-    - Python 3.6+
-    - boto3 library (install with: pip install boto3)
-    - AWS credentials configured (~/.aws/credentials or environment variables)
-    - Appropriate IAM permissions to describe and create EC2 instances
-
-Examples:
-    # Basic usage
-    python clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890
-    
-    # With custom name and region
-    python clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --new-name WebServer --region eu-west-1
-    
-    # Cross-region cloning
-    python clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --region us-east-1 --target-region us-west-2
-"""
 import argparse
 import sys
 try:
@@ -34,21 +12,18 @@ except ImportError as e:
     sys.exit(1)
 
 def main():
-    """
-    Main function to parse arguments and call the clone function
-    """
     parser = argparse.ArgumentParser(
         description='Clone an EC2 instance with a new AMI while preserving all settings',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Clone instance with a new AMI in the same region
+  # Clona a instância desejada com uma nova AMI para a mesma região
   %(prog)s --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --region us-east-1
   
-  # Clone instance with a new AMI and custom name
+  # Clona a instância desejada com uma nova AMI para a mesma região com um novo nome
   %(prog)s --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --new-name WebServer
   
-  # Clone instance to a different region
+  # Clona a instância desejada com uma nova AMI para uma região diferente
   %(prog)s --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --region us-east-1 --target-region us-west-2
         """
     )
