@@ -129,7 +129,6 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
                 run_params['SubnetId'] = instance['SubnetId']
         else:
             # Para cross, temos que buscar uma subnet analoga
-            # Vamos usar a primeira subnet na mesma az definida
             source_az = instance['Placement']['AvailabilityZone']
             source_az_letter = source_az[-1]  # pega a letra da AZ (a, b, c e etc..)
             
@@ -137,7 +136,7 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
                 # Pega todas as subnets na target region
                 subnets = target_ec2.describe_subnets()['Subnets']
                 
-                # Try to find a subnet in the same AZ letter
+                # Tenta encontrar a subnet na mesma letra final da AZ
                 target_subnet = None
                 for subnet in subnets:
                     target_az = subnet['AvailabilityZone']
@@ -145,7 +144,7 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
                         target_subnet = subnet['SubnetId']
                         break
                 
-                # If no subnet found with same AZ letter, use the first one
+                # Se nenhuma subnet for encontrada na mesma AZ, escolher a primeira da lista
                 if not target_subnet and subnets:
                     target_subnet = subnets[0]['SubnetId']
                 
@@ -157,21 +156,18 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
             except Exception as e:
                 print(f"Warning: Error finding subnet in target region: {e}. Instance will be launched in default subnet.")
     
-    # Add security groups if exist - need to handle cross-region case
+    # Add security group se existir - precisa alterar se for usar cross region
     if 'SecurityGroups' in instance:
         if source_region == target_region:
             run_params['SecurityGroupIds'] = [sg['GroupId'] for sg in instance['SecurityGroups']]
         else:
-            # For cross-region, we need to find or create equivalent security groups
-            # For simplicity, we'll use the default security group
+
             print("Warning: Cross-region cloning - using default security group in target region")
             try:
-                # Get default VPC
                 vpcs = target_ec2.describe_vpcs(Filters=[{'Name': 'isDefault', 'Values': ['true']}])
                 if vpcs['Vpcs']:
                     default_vpc_id = vpcs['Vpcs'][0]['VpcId']
                     
-                    # Get default security group
                     sgs = target_ec2.describe_security_groups(
                         Filters=[
                             {'Name': 'vpc-id', 'Values': [default_vpc_id]},
@@ -183,29 +179,28 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
             except Exception as e:
                 print(f"Warning: Error finding default security group: {e}")
     
-    # Add key name if exists - need to check if key exists in target region
+    # Adiciona a keypair se existir - precisa validar o cross
     if 'KeyName' in instance:
         key_name = instance['KeyName']
         if source_region == target_region:
             run_params['KeyName'] = key_name
         else:
-            # Check if the key exists in target region
             try:
                 key_pairs = target_ec2.describe_key_pairs(KeyNames=[key_name])
                 run_params['KeyName'] = key_name
             except:
                 print(f"Warning: Key pair '{key_name}' not found in target region {target_region}. Instance will be launched without key pair.")
     
-    # Add user data if exists
+    # Add user data se existir
     if 'UserData' in instance:
         run_params['UserData'] = instance['UserData']
     
-    # Add IAM instance profile if exists
+    # Add IAM instance profile se existir
     if 'IamInstanceProfile' in instance:
         profile_name = instance['IamInstanceProfile']['Arn'].split('/')[-1]
         run_params['IamInstanceProfile'] = {'Name': profile_name}
     
-    # Add metadata options if exist
+    # Add metadata options se existir
     if 'MetadataOptions' in instance:
         metadata_options = {}
         if 'HttpEndpoint' in instance['MetadataOptions']:
@@ -218,26 +213,26 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
         if metadata_options:
             run_params['MetadataOptions'] = metadata_options
     
-    # Add monitoring if enabled
+    # Add monitoring if habilitado
     if 'Monitoring' in instance and instance['Monitoring']['State'] == 'enabled':
         run_params['Monitoring'] = {'Enabled': True}
     
-    # Add EBS optimized if enabled
+    # Add EBS optimized se habilitado
     if 'EbsOptimized' in instance and instance['EbsOptimized']:
         run_params['EbsOptimized'] = True
     
-    # Add placement information if exists
+    # Add placement information se existir
     if 'Placement' in instance:
         placement = {}
         if 'Tenancy' in instance['Placement'] and instance['Placement']['Tenancy'] != 'default':
             placement['Tenancy'] = instance['Placement']['Tenancy']
         
-        # For cross-region, we can't specify the same AZ
+        # Para cross region tem que mexer
         if source_region == target_region:
-            # Get the source AZ
+            # Pegando a source az
             source_az = instance['Placement'].get('AvailabilityZone')
             if source_az:
-                # Get all AZs in the region
+                # Pega todas as AZs da region
                 azs = target_ec2.describe_availability_zones(
                     Filters=[{'Name': 'region-name', 'Values': [target_region]}]
                 )['AvailabilityZones']
@@ -245,11 +240,11 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
                 available_azs = [az['ZoneName'] for az in azs if az['State'] == 'available']
                 
                 if len(available_azs) > 1:
-                    # Remove the source AZ from the list of available AZs
+                    # Remove a source az das disponiveis (objetivoo é a diferente)
                     if source_az in available_azs:
                         available_azs.remove(source_az)
                     
-                    # Use the first available AZ that's different from the source
+                    # Usa a primeira disponivel da lista
                     target_az = available_azs[0]
                     placement['AvailabilityZone'] = target_az
                     print(f"Placing new instance in a different AZ: {target_az} (original was {source_az})")
@@ -322,22 +317,12 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
     return new_instance_id
 
 def apply_tags(source_ec2, target_ec2, source_instance_id, target_instance_id, new_name=None):
-    """
-    Copy tags from source instance to target instance, with special handling for Name tag
-    
-    Args:
-        source_ec2: boto3 EC2 client for source region
-        target_ec2: boto3 EC2 client for target region
-        source_instance_id (str): ID of the source instance
-        target_instance_id (str): ID of the target instance
-        new_name (str, optional): New name for the instance
-    """
     print("Copying tags from original instance...")
     tags_response = source_ec2.describe_tags(
         Filters=[{'Name': 'resource-id', 'Values': [source_instance_id]}]
     )
     
-    # Get current month/year for the name suffix
+    # Pega o mes e ano atual
     current_date = datetime.now().strftime("%m/%Y")
     
     if tags_response['Tags']:
@@ -350,10 +335,8 @@ def apply_tags(source_ec2, target_ec2, source_instance_id, target_instance_id, n
                 original_name = tag['Value']
                 break
         
-        # Now create all tags, with special handling for the Name tag
         for tag in tags_response['Tags']:
             if tag['Key'] == 'Name':
-                # If new_name is provided, use it; otherwise format the original name
                 if new_name:
                     name_value = f"{new_name}-DR-{current_date}"
                 else:
@@ -369,14 +352,12 @@ def apply_tags(source_ec2, target_ec2, source_instance_id, target_instance_id, n
                     'Value': tag['Value']
                 })
         
-        # If there was no Name tag but new_name is provided, add it
         if not original_name and new_name:
             tags_to_apply.append({
                 'Key': 'Name',
                 'Value': f"{new_name}-DR-{current_date}"
             })
         
-        # Add source instance ID and region as tags
         tags_to_apply.append({
             'Key': 'SourceInstanceId',
             'Value': source_instance_id
