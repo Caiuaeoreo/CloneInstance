@@ -3,17 +3,20 @@ import boto3
 import sys
 from datetime import datetime
 
-def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region, target_region=None):
+def clone_instance_with_new_ami(instance_id, new_ami_id, profile, new_name, source_region, target_region=None):
     # Usaa mesma região se não passar a target
     if target_region is None:
         target_region = source_region
     
     print(f"Starting to clone instance {instance_id} from {source_region} with new AMI {new_ami_id}" + 
           (f" to {target_region}" if target_region != source_region else "") + "...")
+
+    # Definindo profile
+    session = boto3.Session(profile_name=profile)
     
     # Definindo as variaveis de para não ter que escrever a chamada do boto toda a hora 
-    source_ec2 = boto3.client('ec2', region_name=source_region)
-    target_ec2 = boto3.client('ec2', region_name=target_region)
+    source_ec2 = session.client('ec2', region_name=source_region)
+    target_ec2 = session.client('ec2', region_name=target_region)
     
     # Pegando dados da intância base
     response = source_ec2.describe_instances(InstanceIds=[instance_id])
@@ -91,7 +94,8 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
                 # Filtra as subnets que atendem aos critérios
                 matching_subnets = [
                     subnet for subnet in subnets
-                    if subnet['AvailabilityZone'] == target_az and subnet['VpcId'] == source_vpc
+                    #if subnet['AvailabilityZone'] == target_az and subnet['VpcId'] == source_vpc
+                    if subnet['VpcId'] == source_vpc
                 ]
 
                 # Se houver subnets compatíveis, exibe e pede escolha
@@ -311,19 +315,19 @@ def clone_instance_with_new_ami(instance_id, new_ami_id, new_name, source_region
     print(f"New instance created with ID: {new_instance_id}")
     
     # Apply tags to the new instance
-    apply_tags(source_ec2, target_ec2, instance_id, new_instance_id, new_name)
+    apply_tags(source_ec2, target_ec2, profile, instance_id, new_instance_id, new_name)
     
     print(f"Cloning completed! New instance ID: {new_instance_id} in region {target_region}")
     return new_instance_id
 
-def apply_tags(source_ec2, target_ec2, source_instance_id, target_instance_id, new_name=None):
+def apply_tags(source_ec2, target_ec2, profile, source_instance_id, target_instance_id, new_name=None):
     print("Copying tags from original instance...")
     tags_response = source_ec2.describe_tags(
         Filters=[{'Name': 'resource-id', 'Values': [source_instance_id]}]
     )
     
     # Pega o mes e ano atual
-    current_date = datetime.now().strftime("%m/%Y")
+    current_date = datetime.now().strftime("%d/%m/%Y")
     
     if tags_response['Tags']:
         tags_to_apply = []
@@ -331,6 +335,10 @@ def apply_tags(source_ec2, target_ec2, source_instance_id, target_instance_id, n
         
         # First, find the original Name tag if it exists
         for tag in tags_response['Tags']:
+
+            if tag['Key'].startswith('aws:'):
+                continue
+
             if tag['Key'] == 'Name':
                 original_name = tag['Value']
                 break
