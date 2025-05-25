@@ -6,9 +6,9 @@ try:
     from libs.ec2_clone_functions import clone_instance_with_new_ami
 except ImportError as e:
     if "boto3" in str(e):
-        print("ERROR: boto3 library is required. Install it with: pip install boto3")
+        print("ERRO: Lib boto3 é necessária para a execução. Instale com: pip install boto3")
     else:
-        print(f"ERROR: {e}")
+        print(f"ERRO: {e}")
     sys.exit(1)
 
 def main():
@@ -18,13 +18,13 @@ def main():
         epilog="""
 Examples:
   # Clona a instância desejada com uma nova AMI para a mesma região
-  %(prog)s --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --region us-east-1
+  %(prog)s --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --region us-east-1 --profile dev
   
   # Clona a instância desejada com uma nova AMI para a mesma região com um novo nome
-  %(prog)s --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --new-name WebServer
+  %(prog)s --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --new-name WebServer --profile dev
   
   # Clona a instância desejada com uma nova AMI para uma região diferente
-  %(prog)s --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --region us-east-1 --target-region us-west-2
+  %(prog)s --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --region us-east-1 --target-region us-west-2 --profile dev
         """
     )
     
@@ -32,6 +32,8 @@ Examples:
                         help='ID of the instance to clone (e.g., i-0123456789abcdef0)')
     parser.add_argument('--new-ami-id', required=True, 
                         help='ID of the new AMI to use (e.g., ami-0abcdef1234567890)')
+    parser.add_argument('--profile', required=True, default='dev',
+                        help='Profile name (e.g., dev, hml, prd e etc... | Default: dev)')
     parser.add_argument('--new-name', 
                         help='New name for the instance. Will be formatted as <new-name>-DR-MM/YYYY')
     parser.add_argument('--region', default='us-east-1', 
@@ -45,6 +47,7 @@ Examples:
         clone_instance_with_new_ami(
             args.instance_id, 
             args.new_ami_id, 
+            args.profile,
             args.new_name, 
             args.region,
             args.target_region
