@@ -1,17 +1,18 @@
 # EC2 Instance Cloner
 
-Este script permite clonar uma instância EC2 existente com uma nova AMI, preservando todas as outras configurações, incluindo grupos de segurança, perfis IAM, tags, opções de metadados e volumes EBS. Também suporta clonagem entre regiões AWS diferentes.
+Este script permite clonar uma instância EC2 existente com uma nova AMI, preservando todas as outras configurações, incluindo grupos de segurança, perfis IAM, tags, opções de metadados e volumes EBS.
 
 ## Funcionalidades
 
 - Clona uma instância EC2 existente usando uma nova AMI
-- Suporta clonagem entre regiões AWS diferentes
+- **Busca automaticamente as AMIs mais recentes** criadas pelo AWS Backup para a instância
 - **Coloca automaticamente a nova instância em uma AZ diferente da original** (para melhor resiliência)
+- **Preserva o tipo de volume raiz** da instância original, evitando erros de compatibilidade
 - Preserva todas as configurações da instância original:
   - Tipo de instância
-  - Sub-rede (com adaptação inteligente para clonagem entre regiões e AZs)
-  - Grupos de segurança (com adaptação para clonagem entre regiões)
-  - Key pair (quando disponível na região de destino)
+  - Sub-rede (com adaptação inteligente para diferentes AZs)
+  - Grupos de segurança
+  - Key pair
   - User data
   - Perfil IAM
   - Configurações de IMDS (IMDSv2)
@@ -24,8 +25,10 @@ Este script permite clonar uma instância EC2 existente com uma nova AMI, preser
   - Volumes EBS adicionais
   - Tags
 - Permite especificar um novo nome para a instância clonada
-- Formata automaticamente o nome com sufixo "-DR-MM/AAAA"
+- Formata automaticamente o nome com sufixo "-DR-DD/MM/AAAA"
 - Adiciona tags de rastreamento para identificar a instância de origem
+- Interface amigável com emojis e informações detalhadas durante o processo
+- **Gera relatório detalhado** ao final da execução com informações completas sobre a clonagem
 
 ## Pré-requisitos
 
@@ -47,70 +50,63 @@ pip install boto3
 ## Uso
 
 ```bash
-# Uso básico (mesma região)
-./clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890
+# Uso básico - busca automática de AMIs
+./clone_ec2.py --instance-id i-0123456789abcdef0 --profile dev
+
+# Especificando uma AMI específica
+./clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --profile dev
 
 # Com nome personalizado
-./clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --new-name WebServer
+./clone_ec2.py --instance-id i-0123456789abcdef0 --new-name WebServer --profile dev
 
-# Especificando a região de origem
-./clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --region us-east-1
-
-# Clonagem entre regiões diferentes
-./clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --region us-east-1 --target-region us-west-2
+# Especificando a região
+./clone_ec2.py --instance-id i-0123456789abcdef0 --region us-east-1 --profile dev
 ```
 
 ### Parâmetros
 
 - `--instance-id`: ID da instância a ser clonada (obrigatório)
-- `--new-ami-id`: ID da nova AMI a ser usada (obrigatório)
-- `--new-name`: Novo nome para a instância (opcional). Será formatado como `<novo-nome>-DR-MM/AAAA`
-- `--region`: Região AWS onde a instância de origem está localizada (padrão: us-east-1)
-- `--target-region`: Região AWS onde a nova instância será criada (opcional). Se não especificado, usa a mesma região da origem.
+- `--profile`: Nome do perfil AWS a ser usado (obrigatório, ex: dev, hml, prd)
+- `--new-ami-id`: ID da nova AMI a ser usada (opcional). Se não for fornecido, o script buscará automaticamente as AMIs mais recentes da instância
+- `--new-name`: Novo nome para a instância (opcional). Será formatado como `<novo-nome>-DR-DD/MM/AAAA`
+- `--region`: Região AWS onde a instância está localizada (padrão: us-east-1)
 
 ## Exemplos
 
-### Exemplo 1: Clonagem básica na mesma região
+### Exemplo 1: Busca automática de AMIs
 
 ```bash
-./clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890
+./clone_ec2.py --instance-id i-0123456789abcdef0 --profile dev
 ```
 
-Este comando clonará a instância `i-0123456789abcdef0` usando a AMI `ami-0abcdef1234567890` na mesma região. O nome da nova instância será o mesmo da instância original com o sufixo `-DR-MM/AAAA`.
+Este comando buscará automaticamente as AMIs mais recentes criadas para a instância `i-0123456789abcdef0` e permitirá que você escolha qual usar. O nome da nova instância será o mesmo da instância original com o sufixo `-DR-DD/MM/AAAA`.
 
-### Exemplo 2: Clonagem com novo nome
+### Exemplo 2: Clonagem com AMI específica e novo nome
 
 ```bash
-./clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --new-name WebServer
+./clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --new-name WebServer --profile dev
 ```
 
-Este comando clonará a instância `i-0123456789abcdef0` usando a AMI `ami-0abcdef1234567890`. O nome da nova instância será `WebServer-DR-MM/AAAA`.
+Este comando clonará a instância `i-0123456789abcdef0` usando a AMI `ami-0abcdef1234567890`. O nome da nova instância será `WebServer-DR-DD/MM/AAAA`.
 
-### Exemplo 3: Clonagem entre regiões diferentes
+## Compatibilidade de Volumes
 
-```bash
-./clone_ec2.py --instance-id i-0123456789abcdef0 --new-ami-id ami-0abcdef1234567890 --region us-east-1 --target-region us-west-2
+O script verifica automaticamente se o tipo de volume raiz da instância original (ex: gp2, gp3) é diferente do tipo proposto pela AMI. Se forem diferentes, o script preserva o tipo de volume da instância original, evitando erros como:
+
+```
+InvalidParameterCombination: The parameter iops is not supported for gp2 volumes
 ```
 
-Este comando clonará a instância `i-0123456789abcdef0` da região `us-east-1` para a região `us-west-2` usando a AMI `ami-0abcdef1234567890`. 
-
-**Nota**: Para clonagem entre regiões, a AMI especificada deve existir na região de destino. O script fará adaptações inteligentes para sub-redes, grupos de segurança e key pairs.
-
-## Considerações para clonagem entre regiões
-
-Quando clonar entre regiões diferentes, o script:
-
-1. **Sub-redes**: Tentará encontrar uma sub-rede na mesma letra de AZ (a, b, c) na região de destino
-2. **Grupos de segurança**: Usará o grupo de segurança padrão na região de destino
-3. **Key pair**: Verificará se o mesmo key pair existe na região de destino
-4. **AMI**: Verificará se a AMI especificada existe na região de destino
-5. **Tags adicionais**: Adicionará tags `SourceInstanceId` e `SourceRegion` para rastreabilidade
+Isso é especialmente útil quando:
+- A AMI foi criada quando a instância usava um tipo de volume (ex: gp2)
+- A instância foi posteriormente atualizada para outro tipo (ex: gp3)
+- Ao clonar, o script mantém o tipo atual da instância (gp3), não o da AMI (gp2)
 
 ## Alta Disponibilidade
 
 Para melhorar a resiliência, o script sempre tenta colocar a nova instância em uma Zona de Disponibilidade (AZ) diferente da instância original:
 
-- Quando clonando na mesma região, a nova instância será colocada em uma AZ diferente automaticamente
+- A nova instância será colocada em uma AZ diferente automaticamente
 - Isso ajuda a proteger contra falhas de AZ, seguindo as melhores práticas de alta disponibilidade
 - As sub-redes são selecionadas de acordo com a nova AZ
 
@@ -122,7 +118,9 @@ Para melhorar a resiliência, o script sempre tenta colocar a nova instância em
 ├── README.md              # Este arquivo
 └── libs/
     ├── __init__.py        # Torna o diretório um pacote Python
-    └── ec2_clone_functions.py  # Funções para clonar instâncias EC2
+    ├── ec2_clone_functions.py  # Funções principais para clonagem
+    ├── ec2_volume_utils.py     # Funções para manipulação de volumes
+    └── ami_finder.py           # Funções para busca de AMIs
 ```
 
 ## Solução de Problemas
@@ -143,6 +141,48 @@ Verifique se a região AWS está correta e se você tem conectividade com a AWS.
 
 Verifique se suas credenciais AWS têm permissões suficientes para descrever e criar instâncias EC2.
 
-### Erro: "AMI not found in target region"
+### Erro: "No AMI found for instance"
 
-Certifique-se de que a AMI especificada existe na região de destino. AMIs são específicas de cada região.
+O script não conseguiu encontrar AMIs criadas pelo AWS Backup para a instância especificada. Verifique se:
+1. A instância tem backups configurados
+2. O AWS Backup está criando AMIs para a instância
+3. As AMIs têm o ID da instância na descrição ou nome
+
+### Erro: "InvalidParameterCombination"
+
+Se você ainda encontrar erros relacionados a combinações inválidas de parâmetros para volumes, verifique se a instância tem configurações de volume especiais que podem não ser compatíveis com a AMI.
+
+## Relatório Final
+
+Ao concluir a clonagem, o script gera automaticamente um relatório detalhado com informações importantes:
+
+```
+===Consigcard===
+
+Account: DEV
+
+Aplicação: 
+
+EC2: WebServer-DR-25/05/2025 - i-0z9y8x7w6v5u4t3s
+AMI: ami-0123456789abcdef0
+(A original era i-0a1b2c3d4e5f6g7h8)
+AZ: us-east-1b (original era us-east-1a)
+Sub: subnet-def456abc789 (original era subnet-abc123def456)
+
+Removida do LB: 
+Voltou ao LB: 
+Inicio: 20:15
+Fim: 20:23
+
+Novo IP: 10.0.2.45 (original era 10.0.1.123)
+```
+
+O relatório é exibido no terminal e também salvo em um arquivo de texto para referência futura. Ele inclui:
+
+- Informações da instância original e da nova instância
+- Detalhes sobre a AMI utilizada
+- Zonas de disponibilidade e subnets
+- Horários precisos de início e fim do processo
+- Endereços IP das instâncias
+
+Alguns campos são deixados em branco para preenchimento manual, como "Aplicação", "Removida do LB" e "Voltou ao LB".
